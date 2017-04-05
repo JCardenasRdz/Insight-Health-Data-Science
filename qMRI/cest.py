@@ -30,8 +30,9 @@ def lorentzian_sim(xdata, Amp, Width, Center):
 
     # calculate final output
     num_pools = int(Num_variables/3)
+
     # Preallocate output
-    Lsum = np.zeros_like(xdata)
+    Lsum = np.zeros( (xdata.shape[0],1))
 
     for idx in range(num_pools):
         # assign each variable
@@ -44,10 +45,15 @@ def lorentzian_sim(xdata, Amp, Width, Center):
     return Lsum
 
 def lorentzian_fit(x_data,experimental_data,initial_guess_offsets,repetitions = 10):
+    # correct xdata for B0 shift
+    x_data = x_data - x_data[np.argmax(experimental_data)]
     initial_guess_offsets = np.array(initial_guess_offsets)
-    L = lambda pars: lorentzian_sim(x_data,pars[0::3], pars[1::3], pars[2::3])
+
     # residual function
-    func = lambda pars: experimental_data - L(pars)
+    L = lambda pars: lorentzian_sim(x_data,pars[0::3],pars[1::3], pars[2::3])
+    def res_(p):
+        return np.squeeze(experimental_data)- np.squeeze( L(p) )
+
     N_pools= initial_guess_offsets.__len__()
     Amplitudes_x0 = uniform(0,1,(N_pools,repetitions))
     Width_x0 = uniform(.1,5,(N_pools,repetitions))
@@ -56,14 +62,15 @@ def lorentzian_fit(x_data,experimental_data,initial_guess_offsets,repetitions = 
 
     up_lim, low_lim, init_offsets= build_limits(initial_guess_offsets)
 
-    for i in range(repetitions):
+    for i in range(10):
         x0[0::3] = Amplitudes_x0[:,i]
         x0[1::3] = Width_x0[:,i]
         x0[2::3] = init_offsets
-        pars_predicted = least_squares(func, x0, bounds=(low_lim,up_lim)).x
+        pars_predicted = least_squares(res_, x0, bounds=(low_lim,up_lim)).x
         x_results[:,i] = pars_predicted
-
-    return np.mean(x_results,axis=1), L(np.mean(x_results,axis=1)), x_results
+    x_pred = np.mean(x_results,axis=1)
+    Z_predicted = L(np.mean(x_results,axis=1))
+    return x_pred, Z_predicted
 
 def build_limits(initial_guess_offsets):
     x0 = np.array(initial_guess_offsets)
@@ -73,11 +80,11 @@ def build_limits(initial_guess_offsets):
     N_pools= x0.__len__()
     lower_lim = np.zeros((N_pools*3))
     lower_lim[1::3]=0.1
-    lower_lim[2::3]=x0 * 0.70
+    lower_lim[2::3]=x0 * 0.50
 
     upper_lim = np.ones((N_pools*3))
     upper_lim[1::3]=5
-    upper_lim[2::3]=x0 * 1.30
+    upper_lim[2::3]=x0 * 1.50
     # swap if we have negative offsets
     true_lower = upper_lim[upper_lim<0]
     true_upper = lower_lim[lower_lim<0]
@@ -86,3 +93,9 @@ def build_limits(initial_guess_offsets):
     lower_lim[lower_lim<0] = true_lower
 
     return upper_lim, lower_lim, x0
+
+def normalize(Zpectra,n):
+    Zn = np.zeros_like(Zpectra.T)
+    for idx, z in enumerate(Zpectra.T):
+        Zn[idx,:] = z/z[n]
+    return Zn.T
